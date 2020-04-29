@@ -1,0 +1,157 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Cmd+Shift+Enter*. 
+
+```{r}
+library(tidyverse)
+library(tidyquant)
+library(timetk)
+
+
+# put data to a tibble, convert to long format, group by fund
+  fund_data_tibble <- 
+    tk_tbl(styleEx[["RBSA.rolling"]], rename_index = "date") %>%
+    gather(fund, weight, -date) %>% 
+    group_by(fund)  
+```
+
+```{r}
+# create area plot, stacked
+
+  fund_data_tibble %>% 
+    ggplot(aes(x = date, y = weight)) + 
+    geom_area(aes(colour = fund, fill= fund), position = 'stack', alpha=0.6)
+
+
+```
+
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Cmd+Option+I*.
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Cmd+Shift+K* to preview the HTML file). 
+
+The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
+
+```{r}
+library(tidyquant)
+
+styleSymbols <- c("IWD", "IWF", "IWN", "IWO")
+
+test <- styleSymbols %>%
+
+    tq_get(get="stock.prices",
+
+           from = "2007-12-31")
+```
+
+```{r}
+t <- c(0.25, 0.5, 1, 2, 3, 5, 7, 10, 20, 30)
+y <- c(0.03, 0.06, 0.12, 0.51, 0.95, 1.6, 2.01, 2.32, 2.76, 3.04)
+
+data <- tibble(t) %>%
+  mutate(yield = y)
+library(broom)
+
+data_augmented <- 
+  data %>% 
+  do(model = smooth.spline(y ~ t)) %>% 
+  augment(model)
+
+data_augmented %>% 
+  ggplot(aes(x = x)) + 
+  geom_line(aes(y = y), color = "cornflowerblue") + 
+  geom_line(aes(y = .fitted), color = "green") +
+  xlab("date")
+  
+spl <- smooth.spline(y ~ t)
+
+head(augment(spl, data))
+head(augment(spl))  # calls original columns x and y
+
+smooth.spline2 <- function(x,y) {
+
+
+  smooth.spline(x,y)
+}
+
+
+predictdf.smooth.spline <- function(model, xseq, se, level) {
+  pred <- predict(model, xseq)
+  data.frame(x = xseq, y = pred$y)
+}
+
+qplot(mpg, wt, data = mtcars) + geom_smooth(method = "smooth.spline2", se= F)
+
+data %>% 
+ggplot(aes(x = t, y = yield)) +
+#geom_smooth()
+geom_smooth(method = "smooth.spline2", se = FALSE)
+
+```
+
+```{r}
+plot(spl, ylab = 'Yield', xlab = 'Years', main = 'Treasury Yield Curve for 11/7/2014')
+lines(spl)
+spl <- smooth.spline(y ~ t)
+predict(spl, t)
+t.new <- seq(from = 0.5, to = 30, by = 0.5)
+obj <- as.tibble(predict(spl, t.new))
+obj %>%
+  ggplot(aes(x = x, y = y)) + 
+  geom_line()
+```
+
+```{r}
+treas <- tq_get("USTREASURY/YIELD", get  = "quandl") %>% 
+  filter(date == "2018-04-06")
+
+t <- c(days(30), days(90), days(180), years(1), years(2), years(3), years(5), years(7), years(10), years(20), years(30))
+
+treas_tidied <- treas %>% 
+  gather(time, yield, -date) %>%
+  mutate(date = date %m+% t) %>% 
+  select(-time) 
+
+treas_tidied %>% 
+  ggplot(aes(x = date, y = yield)) +
+geom_smooth(method = "lm", formula = y ~ splines::bs(x), se = FALSE) +
+scale_x_date(breaks = scales::pretty_breaks(n = 20))
+```
+
+```{r}
+orig_t <- c(.08, 0.25, 0.5, 1, 2, 3, 5, 7, 10, 20, 30)
+spl <- 
+smooth.spline(treas_tidied$yield ~ orig_t)
+t.new <- seq(from = 0.5, to = 30, by = 0.5)
+obj <- as.tibble(predict(spl, t.new))
+obj %>%
+  ggplot(aes(x = x, y = y)) + 
+  geom_line()
+```
+
+```{r}
+
+  treas_tidied %>% 
+  do(model = smooth.spline(.$yield ~ orig_t)) %>% 
+  augment(model) %>%  
+  ggplot(aes(x = treas_tidied$date)) +
+  geom_line(aes(y = .fitted), color = "cornflowerblue") +
+  xlab("date") +
+  ylab("yield curve") +
+  scale_x_date(breaks = scales::pretty_breaks(n = 20))
+```
+
+
+A quick word on the simple math for return contribution here. On every starting date, I calculate each stocks weight in the overall market (market cap (float) for stock x, divided by the sum of all market caps). I then fetch the return over the next year (or, if a stock is acquired or goes to zero, the return over the stub-period less than 1-year). I then multiple the starting weight to the forward 1-year return to get each stock’s contribution to total return. So, for example, Microsoft started 2015 as 2.2% of the market’s overall weight, it went up 22% or so, leading to a total contribution of +0.5% (2.2%*22%=~0.5% contribution). Get a contribution for every stock, add them all up, and you have the market’s return.
+
+```{r}
+teset <- tq_index("SP500")
+```
+
+
+
